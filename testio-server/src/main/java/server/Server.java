@@ -6,10 +6,10 @@ import java.net.Socket;
 import java.util.concurrent.*;
 
 public class Server {
-    public void initServer(){
+    public void initServer(int port){
         try {
-            ServerSocket serverSocket = new ServerSocket(8080) ;
-            System.out.println("Server started on 8080");
+            ServerSocket serverSocket = new ServerSocket(port) ;
+            System.out.println("Server started on "+port);
             // 线程池中空闲线程数
             int corePoolSize = 5 ;
             // 线程池中最大线程数

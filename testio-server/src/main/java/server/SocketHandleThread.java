@@ -20,7 +20,6 @@ public class SocketHandleThread implements Runnable{
     public SocketHandleThread(Socket socket){
         this.socket = socket ;
     }
-
     public void run() {
         try {
             // 获取socket输入流 用于接受客户端发来的数据
