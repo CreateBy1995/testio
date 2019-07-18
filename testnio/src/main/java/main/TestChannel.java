@@ -10,6 +10,22 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 
 public class TestChannel {
+
+
+    /**
+     * 利用通道进行文件复制,这种方式使用的也是直接缓冲区
+     */
+    @Test
+    public void testChannelV4() throws IOException {
+        // 文件路径
+        File file = new File("");
+        String filePath = file.getCanonicalPath();
+        FileChannel inputChannel = FileChannel.open(Paths.get(filePath+"//testChannel.txt"), StandardOpenOption.READ) ;
+        FileChannel outputChannel = FileChannel.open(Paths.get(filePath+"//testChannelCopy.txt"), StandardOpenOption.WRITE,StandardOpenOption.READ) ;
+        // 3个参数分别为  传输的起始偏移量，传输的终止偏移量，传输的目的地
+        inputChannel.transferTo(0,inputChannel.size(),outputChannel) ;
+    }
+
     /**
      * 开启一个读写通道
      * @throws IOException
