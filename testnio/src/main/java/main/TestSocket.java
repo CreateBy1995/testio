@@ -1,22 +1,25 @@
 package main;
 
 import org.junit.Test;
+import sun.nio.ch.SelectorProviderImpl;
 
 import java.io.File;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
-import java.nio.channels.FileChannel;
-import java.nio.channels.ServerSocketChannel;
-import java.nio.channels.SocketChannel;
+import java.nio.channels.*;
+import java.nio.channels.spi.SelectorProvider;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
+import java.util.Iterator;
+import java.util.Scanner;
+import java.util.Set;
 
 public class TestSocket {
     @Test
-    public void Client() throws IOException {
+    public void client() throws IOException {
         // 开启一个客户端通道
-        SocketChannel socketChannel = SocketChannel.open(new InetSocketAddress("127.0.0.1",80)) ;
+        SocketChannel socketChannel = SocketChannel.open(new InetSocketAddress("127.0.0.1",90)) ;
         // 文件路径
         File file = new File("");
         String filePath = file.getCanonicalPath();
@@ -91,5 +94,71 @@ public class TestSocket {
         serverSocketChannel.close();
         socketChannel.close();
         fileChannel.close();
+    }
+    @Test
+    public void nioServer() throws IOException {
+        // 开启服务端通道 并且绑定端口
+        ServerSocketChannel serverSocketChannel = ServerSocketChannel.open() ;
+        // 将通道设置为非阻塞
+        // 设置成非阻塞后  serverSocketChannel.accept() 这个方法会立即返回 而不会阻塞
+        // 同理可得 如果 socketChannel 也是设置成非阻塞后 socketChannel.read 尽管没有读取到数据也会立即返回
+        // 这就是非阻塞式IO 但其实是将阻塞的时机放到 select方法中
+        // (selectNow方法是立即返回 select(timeout)是超时返回  但不管什么时候返回 还是需要一直轮询)
+        // 只是说这样和BIO的区别就在于 NIO 可以通过select去获取那些socket准备就绪 可以直接读写
+        // 而不是说像BIO那样无法知道哪个socket准备就绪 只能一直阻塞等待
+        serverSocketChannel.configureBlocking(false) ;
+        serverSocketChannel.bind(new InetSocketAddress(90)) ;
+        System.out.println("server started on 90 and waiting for client connection");
+        // 开启一个选择器
+        // 两种不同操作系统实现 NIO 的方式， selector 和epoll
+        // 在windows中select()方法最终调用的是poll0()这个本地方法
+        // 因为是在windows 系统下 所以 此处的默认实现是WindowsSelectorImpl
+        // epoll是只有在linux下才支持  所以还需要在配置这个参数
+        // Djava.nio.channels.spi.SelectorProvider=sun.nio.ch.EPollSelectorProvider
+        Selector selector = Selector.open() ;
+        // 将服务端通道注册到选择器上  并且让选择器监听 OP_ACCEPT 事件 也就是客户端连接事件
+        // 该方法会返回一个 SelectionKey 每一个 SelectionKey都是唯一的 里面记录了SelectionKey是哪一个通道注册到哪一个选择器上
+        // 并且通过index 记录这是选择器上的第几个 SelectionKey
+        serverSocketChannel.register(selector, SelectionKey.OP_ACCEPT) ;
+        // 轮询获取选择器上的 准备就绪 的事件
+        // select 返回的是准备就绪的 SelectionKey的数量 例如有两个客户端可读 就返回2
+        // selector有两个属性 一个叫publicKeys存放所有注册到选择器上的key 一个叫publicSelectedKeys 存放所有准备完毕的key
+        while (selector.select() > 0){
+            // 获取所有准备就绪的事件
+            // selector.selectedKeys()方法返回的是 publicSelectedKeys  表示所有已经准备就绪的的
+            Iterator<SelectionKey> iterator = selector.selectedKeys().iterator() ;
+            while (iterator.hasNext()){
+                SelectionKey selectionKey = iterator.next();
+                // 如果准备好的事件是 客户端连接事件
+                if(selectionKey.isAcceptable()){
+                    // 获取客户端连接通道 并且将其注册进选择器 同时监听多种事件
+                    SocketChannel socketChannel = serverSocketChannel.accept() ;
+                    System.out.println("client -- "+socketChannel.getRemoteAddress()+" -- connect");
+                    int keys = SelectionKey.OP_READ; // SelectionKey.OP_READ|SelectionKey.OP_WRITE; 监听多种事件
+                    socketChannel.configureBlocking(false) ;
+                    socketChannel.register(selector,keys) ;
+                    // 如果准备好的事件 是可读事件
+                }else if(selectionKey.isReadable()){
+                    // 获取通道并打印读取到的数据
+                    SocketChannel socketChannel = (SocketChannel) selectionKey.channel();
+                    ByteBuffer byteBuffer = ByteBuffer.allocate(1024) ;
+                    // 此处的socketChannel.read方法是不会阻塞的
+                    // 也就是说尽管读取到的数据为空  该方法也会返回
+                    // 比如在客户端要发送数据的时候打个断点就能看到效果
+                    while (socketChannel.read(byteBuffer) > 0){
+                        byteBuffer.flip();
+                        String data = new String(byteBuffer.array(),0,byteBuffer.limit()) ;
+                        System.out.println("read the client "+socketChannel.getRemoteAddress()+" data : "+data);
+                        byteBuffer.clear();
+                    }
+                }
+                // 每次处理完SelectionKey  都将其清除  否则会一直获取到处理过的SelectionKey
+                // 因为publicSelectedKeys是一个set select()方法底层会将准备完毕的key一直塞到这个set中
+                // 比如有一个客户端连接事件已经处理完毕了  而没有将其清除掉 然后又有一个客户端连接事件触发 那么这时候publicSelectedKeys会在增加一个准备完毕的key
+                // 此时在调用serverSocketChannel.accept()方法的时候 由于是非阻塞模式
+                // 尽管没有客户端连接也会立即返回null，那么后续的代码就会出错
+                iterator.remove();
+            }
+        }
     }
 }
