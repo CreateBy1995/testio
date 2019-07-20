@@ -134,6 +134,8 @@ public class TestSocket {
                     // 获取客户端连接通道 并且将其注册进选择器 同时监听多种事件
                     SocketChannel socketChannel = serverSocketChannel.accept() ;
                     System.out.println("client -- "+socketChannel.getRemoteAddress()+" -- connect");
+                    // 例如此处我监听了读事件  那么select 去遍历套接字列表的时候就会去检查这个socket的读事件准备好了没有
+                    // 如果好了就把它加到事件列表中 而不会去检查他的写事件
                     int keys = SelectionKey.OP_READ; // SelectionKey.OP_READ|SelectionKey.OP_WRITE; 监听多种事件
                     socketChannel.configureBlocking(false) ;
                     socketChannel.register(selector,keys) ;
