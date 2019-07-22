@@ -50,6 +50,29 @@ public class TestSocket {
         fileChannel.close();
     }
     @Test
+    public void clientNIO() throws IOException {
+        // 开启一个客户端通道
+        SocketChannel socketChannel = SocketChannel.open(new InetSocketAddress("127.0.0.1",90)) ;
+        // 文件路径
+        File file = new File("");
+        String filePath = file.getCanonicalPath();
+        // 以读的模式开启一个文件通道，将此文件发送到服务端
+        FileChannel fileChannel = FileChannel.open(Paths.get(filePath+"//testChannel.txt"), StandardOpenOption.READ) ;
+        // 创建一个存放48个字节的缓冲区
+        ByteBuffer byteBuffer = ByteBuffer.allocate(48) ;
+        while (fileChannel.read(byteBuffer)!=-1){
+            // 将缓冲区切换成读取数据的模式
+            byteBuffer.flip() ;
+            // 将缓冲区的数据发送给服务端
+            socketChannel.write(byteBuffer) ;
+            // 重置缓冲区状态
+            byteBuffer.clear() ;
+        }
+        // 关闭资源
+        socketChannel.close();
+        fileChannel.close();
+    }
+    @Test
     public void blockingServer() throws IOException {
         // 开启一个服务端通道
         ServerSocketChannel serverSocketChannel = ServerSocketChannel.open() ;
@@ -141,17 +164,26 @@ public class TestSocket {
                     socketChannel.register(selector,keys) ;
                     // 如果准备好的事件 是可读事件
                 }else if(selectionKey.isReadable()){
+                    System.out.println("ssss");
                     // 获取通道并打印读取到的数据
                     SocketChannel socketChannel = (SocketChannel) selectionKey.channel();
                     ByteBuffer byteBuffer = ByteBuffer.allocate(1024) ;
                     // 此处的socketChannel.read方法是不会阻塞的
                     // 也就是说尽管读取到的数据为空  该方法也会返回
                     // 比如在客户端要发送数据的时候打个断点就能看到效果
-                    while (socketChannel.read(byteBuffer) > 0){
+                    int i ;
+                    while ((i=socketChannel.read(byteBuffer)) > 0){
                         byteBuffer.flip();
                         String data = new String(byteBuffer.array(),0,byteBuffer.limit()) ;
                         System.out.println("read the client "+socketChannel.getRemoteAddress()+" data : "+data);
                         byteBuffer.clear();
+                    }
+                    // 当客户端主动切断连接的时候，服务端 Socket 的读事件（FD_READ）仍然起作用，也就是说，服务端 Socket 的状态仍然是有东西可读
+                    // socketChannel.read(buffer) 是有返回值的，这种情况下返回值是 -1，所以如果 read 方法返回的是 -1，就可以关闭和这个客户端的连接了。
+                    // 如果不关闭 则selector.select()每次都会检测到这个关闭的客户端的 读事件 仍然可用  但是socketChannel.read(byteBuffer)始终为-1
+                    // 导致服务器一直进行轮询
+                    if (i == -1){
+                        socketChannel.close();
                     }
                 }
                 // 每次处理完SelectionKey  都将其清除  否则会一直获取到处理过的SelectionKey
